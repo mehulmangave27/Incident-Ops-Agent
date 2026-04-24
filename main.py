@@ -16,6 +16,7 @@ import json
 import sys
 import os
 import time
+import subprocess
 
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -111,6 +112,53 @@ def info(msg):
 
 
 # ------------------------------------------------------------------
+# Git helpers
+# ------------------------------------------------------------------
+
+def _run_git(args: list[str], repo_path: str) -> str:
+    """Run a git command and return stdout."""
+    result = subprocess.run(
+        ["git"] + args,
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+def get_deploy_time(repo_path: str) -> str:
+    """Get the ISO timestamp of the latest commit (= deploy time) in strict UTC."""
+    env = os.environ.copy()
+    env["TZ"] = "UTC"
+    result = subprocess.run(
+        ["git", "log", "-1", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%cd"],
+        capture_output=True, text=True, cwd=repo_path, env=env
+    )
+    return result.stdout.strip()
+
+def get_git_diff_from_repo(repo_path: str, num_commits: int = 1) -> str:
+    """Get the diff of the last N commits."""
+    return _run_git(["log", f"-{num_commits}", "-p", "--no-color"], repo_path)
+
+def get_latest_commit_info(repo_path: str) -> dict:
+    """Get summary info about the latest commit."""
+    env = os.environ.copy()
+    env["TZ"] = "UTC"
+    result = subprocess.run(
+        ["git", "log", "-1", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%H%n%an%n%cd%n%s"],
+        capture_output=True, text=True, cwd=repo_path, env=env
+    )
+    lines = result.stdout.strip().splitlines()
+    return {
+        "hash": lines[0] if len(lines) > 0 else "?",
+        "author": lines[1] if len(lines) > 1 else "?",
+        "time": lines[2] if len(lines) > 2 else "?",
+        "subject": lines[3] if len(lines) > 3 else "?",
+    }
+
+
+# ------------------------------------------------------------------
 # Agent steps
 # ------------------------------------------------------------------
 
@@ -175,16 +223,22 @@ def step_failure_timeline(raw_logs, deploy_time):
     return result
 
 
-def step_git_diff():
+def step_git_diff(local_diff: str = None):
     """Step 4: Retrieve recent code changes."""
     step_header("4", "Retrieving recent code changes")
     thinking("Fetching git diff for latest commit...")
+    
+    if local_diff is not None:
+        diff_lines = local_diff.count("\n")
+        success(f"Retrieved diff ({diff_lines} lines changed from local repo)")
+        return local_diff
+        
     result = tool_get_git_diff()
     if result["status"] != "success":
         error(result.get("error", "Unknown error"))
         return None
     diff_lines = result["diff"].count("\n")
-    success(f"Retrieved diff ({diff_lines} lines changed in commit {result['commit_id']})")
+    success(f"Retrieved diff ({diff_lines} lines changed in commit {result.get('commit_id', '?')})")
     return result["diff"]
 
 
@@ -402,7 +456,7 @@ def list_tools():
 # Main investigation runner
 # ------------------------------------------------------------------
 
-def run_investigation(service="payment-service", deploy_time="2026-04-24T09:55:18Z"):
+def run_investigation(service="payment-service", deploy_time="2026-04-24T09:55:18Z", git_diff_override=None):
     """Run a complete incident investigation."""
 
     # Step 1: Get logs
@@ -417,7 +471,7 @@ def run_investigation(service="payment-service", deploy_time="2026-04-24T09:55:1
     failure_times = step_failure_timeline(raw_logs, deploy_time)
 
     # Step 4: Git diff
-    git_diff = step_git_diff()
+    git_diff = step_git_diff(local_diff=git_diff_override)
 
     # Step 5: Rank root causes
     ranking_result = None
@@ -467,14 +521,35 @@ def main():
                         help="Service name to investigate (default: payment-service)")
     parser.add_argument("--deploy-time", default="2026-04-24T09:55:18Z",
                         help="Deploy timestamp in ISO format")
+    parser.add_argument("--repo", default=None,
+                        help="Path to git repo to extract real diff and deploy time from (overrides static dev1 values)")
+    parser.add_argument("--commits", type=int, default=1,
+                        help="If using --repo, number of commits to include in diff")
     parser.add_argument("--auto", action="store_true",
                         help="Run full investigation without prompts")
     args = parser.parse_args()
 
     banner()
 
+    # If --repo is provided, compute real dynamic git diff & deploy time overrides
+    git_diff_override = None
+    deploy_time = args.deploy_time
+
+    if args.repo:
+        repo_path = os.path.abspath(args.repo)
+        try:
+            commit_info = get_latest_commit_info(repo_path)
+            deploy_time = commit_info["time"]
+            git_diff_override = get_git_diff_from_repo(repo_path, args.commits)
+            info(f"Loaded real repo context from: {c(repo_path, Colors.CYAN)}")
+            info(f"Latest commit: {c(commit_info['hash'][:8], Colors.CYAN)} ({commit_info['subject']})")
+            info(f"Deploy time dynamically updated to: {c(deploy_time, Colors.CYAN)}\n")
+        except RuntimeError as e:
+            error(f"Git extraction failed: {e}")
+            sys.exit(1)
+
     if args.auto:
-        run_investigation(service=args.service, deploy_time=args.deploy_time)
+        run_investigation(service=args.service, deploy_time=deploy_time, git_diff_override=git_diff_override)
         return
 
     # Interactive loop
@@ -485,8 +560,21 @@ def main():
             run_investigation()
         elif choice == "2":
             svc = input(c("  Service name: ", Colors.CYAN)).strip() or "payment-service"
-            dt = input(c("  Deploy time (ISO): ", Colors.CYAN)).strip() or "2026-04-24T09:55:18Z"
-            run_investigation(service=svc, deploy_time=dt)
+            
+            repo_q = input(c("  Path to git repo (leave blank for demo diff): ", Colors.CYAN)).strip()
+            if repo_q:
+                try:
+                    repo_path = os.path.abspath(repo_q)
+                    commit_info = get_latest_commit_info(repo_path)
+                    dt = commit_info["time"]
+                    git_override = get_git_diff_from_repo(repo_path, 1)
+                    print(c(f"  [OK] Extracted deploy time {dt} from repo\n", Colors.GREEN))
+                    run_investigation(service=svc, deploy_time=dt, git_diff_override=git_override)
+                except Exception as e:
+                    error(f"Failed to read from repo: {e}")
+            else:
+                dt = input(c("  Deploy time (ISO): ", Colors.CYAN)).strip() or "2026-04-24T09:55:18Z"
+                run_investigation(service=svc, deploy_time=dt)
         elif choice == "3":
             list_tools()
         elif choice.lower() == "q":
