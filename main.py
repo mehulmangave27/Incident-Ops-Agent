@@ -20,6 +20,13 @@ import time
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Load .env for TINYFISH_API_KEY
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from tools.mcp_tools import (
     tool_get_logs,
     tool_get_git_diff,
@@ -30,6 +37,11 @@ from tools.mcp_tools import (
     tool_check_cache,
     tool_store_result,
     TOOL_REGISTRY,
+)
+from tools.tinyfish_tools import (
+    tool_check_vendor_status,
+    tool_search_related_incidents,
+    TINYFISH_REGISTRY,
 )
 
 
@@ -249,21 +261,65 @@ def step_timeline(raw_logs, deploy_time):
     return result
 
 
-def step_external_signals():
-    """Step 7: External intelligence (placeholder for Dev2's TinyFish)."""
+def step_external_signals(failure_times, trace_result):
+    """Step 7: External intelligence via TinyFish."""
     step_header("7", "External intelligence (TinyFish)")
-    print(c("      [PENDING] Dev2 will integrate:", Colors.DIM))
-    print(c("        - check_vendor_status (Stripe, AWS status pages)", Colors.DIM))
-    print(c("        - search_related_incidents (GitHub issues, forums)", Colors.DIM))
-    print(c("        - scan_release_notes (breaking changes in deps)", Colors.DIM))
-    return None
+    external = {"vendor_status": None, "related_incidents": None}
+
+    # --- 7a: Vendor status ---
+    thinking("Checking vendor status pages...")
+    vendor_name = _detect_vendor(trace_result)
+    timestamp = ""
+    if failure_times and failure_times.get("first_error_time"):
+        timestamp = failure_times["first_error_time"]
+
+    vendor = tool_check_vendor_status(vendor_name, timestamp)
+    if vendor["status"] == "success":
+        external["vendor_status"] = vendor
+        if vendor["has_outage"]:
+            warn(f"{vendor['vendor']} outage detected: {vendor['details']}")
+        else:
+            success(f"{vendor['vendor']}: {vendor['overall_status']} — no outage")
+    elif vendor["status"] == "error":
+        warn(f"Vendor check: {vendor['error']}")
+
+    # --- 7b: Related incidents ---
+    thinking("Searching web for similar incidents...")
+    error_msg = ""
+    if trace_result and trace_result.get("traces"):
+        t = trace_result["traces"][0]
+        error_msg = f"{t['exception_type']} {t['frames'][0]['file']}"
+
+    related = tool_search_related_incidents(error_msg)
+    if related["status"] == "success":
+        external["related_incidents"] = related
+        success(f"Found {related['result_count']} related incidents")
+        for r in related.get("results", [])[:3]:
+            info(f"  [{r['source']}] {r['title']}")
+    elif related["status"] == "error":
+        warn(f"Web search: {related['error']}")
+
+    return external
+
+
+def _detect_vendor(trace_result):
+    """Heuristic: Try to figure out which vendor might be relevant."""
+    # For the demo scenario, the logs mention Stripe
+    # In a real system, this would scan logs/stack trace for vendor keywords
+    vendors = ["stripe", "aws", "github", "cloudflare", "datadog", "pagerduty"]
+    if trace_result and trace_result.get("traces"):
+        text = json.dumps(trace_result).lower()
+        for v in vendors:
+            if v in text:
+                return v
+    return "stripe"  # default for demo
 
 
 # ------------------------------------------------------------------
 # Final report
 # ------------------------------------------------------------------
 
-def print_final_report(ranking_result, timeline_result, failure_times):
+def print_final_report(ranking_result, timeline_result, failure_times, external=None):
     """Print the final investigation summary."""
     print()
     print(c("=" * 64, Colors.GREEN))
@@ -283,6 +339,26 @@ def print_final_report(ranking_result, timeline_result, failure_times):
             ttf = failure_times.get('time_to_failure_seconds')
             if ttf:
                 print(f"  {c('Time to fail:', Colors.BOLD)}  {ttf:.0f}s after deploy")
+
+    # --- External signals section ---
+    if external:
+        print()
+        print(c("  ── External Intelligence ──", Colors.BOLD + Colors.CYAN))
+
+        vendor = external.get("vendor_status")
+        if vendor and vendor.get("status") == "success":
+            v_icon = c("⚠ OUTAGE", Colors.RED + Colors.BOLD) if vendor["has_outage"] else c("✓ OK", Colors.GREEN)
+            print(f"  {c('Vendor:', Colors.BOLD)}       {vendor['vendor']} — {v_icon}")
+            print(f"  {c('Status:', Colors.BOLD)}       {vendor['overall_status']}")
+            if vendor.get("incidents"):
+                for inc in vendor["incidents"][:2]:
+                    print(f"                  • {inc.get('title', 'N/A')} ({inc.get('severity', '?')})")
+
+        related = external.get("related_incidents")
+        if related and related.get("status") == "success" and related.get("results"):
+            print(f"  {c('Web Results:', Colors.BOLD)}  {related['result_count']} similar incidents found")
+            for r in related["results"][:3]:
+                print(f"                  • [{r['source']}] {r['title']}")
 
     print()
     print(c("=" * 64, Colors.GREEN))
@@ -307,9 +383,15 @@ def interactive_prompt():
 
 
 def list_tools():
-    """Display all available MCP tools."""
-    step_header("?", "Available MCP Tools")
+    """Display all available tools."""
+    step_header("?", "Available MCP Tools (Dev1)")
     for name, info in TOOL_REGISTRY.items():
+        params = ", ".join(f"{k}: {v}" for k, v in info["parameters"].items())
+        print(f"      {c(name, Colors.YELLOW)}({c(params, Colors.DIM)})")
+        print(f"        {info['description']}")
+    print()
+    step_header("?", "TinyFish Tools (Dev2)")
+    for name, info in TINYFISH_REGISTRY.items():
         params = ", ".join(f"{k}: {v}" for k, v in info["parameters"].items())
         print(f"      {c(name, Colors.YELLOW)}({c(params, Colors.DIM)})")
         print(f"        {info['description']}")
@@ -345,11 +427,11 @@ def run_investigation(service="payment-service", deploy_time="2026-04-24T09:55:1
     # Step 6: Timeline
     timeline_result = step_timeline(raw_logs, deploy_time)
 
-    # Step 7: External signals (Dev2 placeholder)
-    step_external_signals()
+    # Step 7: External signals (TinyFish)
+    external = step_external_signals(failure_times, trace_result)
 
     # Final report
-    print_final_report(ranking_result, timeline_result, failure_times)
+    print_final_report(ranking_result, timeline_result, failure_times, external)
 
     # Attempt to cache result
     if ranking_result and ranking_result.get("candidates") and trace_result.get("traces"):
@@ -363,6 +445,7 @@ def run_investigation(service="payment-service", deploy_time="2026-04-24T09:55:1
             result={
                 "root_cause": top_candidate,
                 "failure_times": failure_times,
+                "external_signals": external,
             },
         )
 
