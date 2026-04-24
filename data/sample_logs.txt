@@ -1,0 +1,60 @@
+2026-04-24T09:55:00Z INFO  [deploy-agent] Starting deployment of payment-service v2.4.1
+2026-04-24T09:55:02Z INFO  [deploy-agent] Pulling image payment-service:v2.4.1
+2026-04-24T09:55:08Z INFO  [deploy-agent] Rolling update initiated — replacing 3 pods
+2026-04-24T09:55:15Z INFO  [deploy-agent] Pod payment-service-7b4f9 started
+2026-04-24T09:55:16Z INFO  [deploy-agent] Pod payment-service-8c5a2 started
+2026-04-24T09:55:17Z INFO  [deploy-agent] Pod payment-service-3d6e1 started
+2026-04-24T09:55:18Z INFO  [deploy-agent] Deployment complete. All health checks passing.
+2026-04-24T09:55:20Z INFO  [payment-service] Service initialized — listening on port 8080
+2026-04-24T09:55:21Z INFO  [payment-service] Connected to database payment-db-primary
+2026-04-24T09:55:22Z INFO  [payment-service] Redis cache connection established
+2026-04-24T09:55:23Z INFO  [payment-service] Stripe SDK initialized (v12.3.0)
+2026-04-24T09:56:00Z INFO  [payment-service] Processing payment req_a1b2c3 for user_501 amount=$49.99
+2026-04-24T09:56:01Z INFO  [payment-service] Stripe charge created: ch_1abc — status=succeeded
+2026-04-24T09:56:01Z INFO  [payment-service] Payment req_a1b2c3 completed successfully
+2026-04-24T09:57:00Z INFO  [payment-service] Processing payment req_d4e5f6 for user_302 amount=$129.00
+2026-04-24T09:57:01Z INFO  [payment-service] Stripe charge created: ch_2def — status=succeeded
+2026-04-24T09:57:01Z INFO  [payment-service] Payment req_d4e5f6 completed successfully
+2026-04-24T09:58:00Z INFO  [payment-service] Processing payment req_g7h8i9 for user_817 amount=$9.99
+2026-04-24T09:58:01Z INFO  [payment-service] Stripe charge created: ch_3ghi — status=succeeded
+2026-04-24T09:58:01Z INFO  [payment-service] Payment req_g7h8i9 completed successfully
+2026-04-24T09:59:30Z INFO  [payment-service] Processing payment req_j1k2l3 for user_644 amount=$74.50
+2026-04-24T09:59:31Z WARN  [payment-service] Slow response from Stripe API — latency=1847ms (threshold=500ms)
+2026-04-24T09:59:32Z INFO  [payment-service] Stripe charge created: ch_4jkl — status=succeeded
+2026-04-24T09:59:32Z INFO  [payment-service] Payment req_j1k2l3 completed (degraded performance)
+2026-04-24T10:00:00Z INFO  [payment-service] Processing payment req_m4n5o6 for user_203 amount=$250.00
+2026-04-24T10:00:01Z WARN  [payment-service] Stripe API latency elevated — latency=2103ms
+2026-04-24T10:00:03Z WARN  [payment-service] User context lookup returned partial data for user_203
+2026-04-24T10:00:15Z INFO  [payment-service] Processing payment req_p7q8r9 for user_NEW_SIGNUP amount=$19.99
+2026-04-24T10:00:15Z WARN  [payment-service] User profile missing expected field 'billing_address' for user_NEW_SIGNUP
+2026-04-24T10:00:16Z ERROR [payment-service] NullPointerException at PaymentService.java:84 — user_id is null
+2026-04-24T10:00:16Z ERROR [payment-service] java.lang.NullPointerException: Cannot invoke method on null reference
+	at com.acme.payment.PaymentService.processPayment(PaymentService.java:84)
+	at com.acme.payment.PaymentService.validateUser(PaymentService.java:67)
+	at com.acme.payment.PaymentController.handleRequest(PaymentController.java:42)
+	at com.acme.payment.middleware.AuthMiddleware.doFilter(AuthMiddleware.java:31)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)
+2026-04-24T10:00:16Z ERROR [payment-service] Payment failed for req_p7q8r9 — error=NullPointerException
+2026-04-24T10:00:30Z INFO  [payment-service] Processing payment req_s1t2u3 for user_712 amount=$59.00
+2026-04-24T10:00:30Z INFO  [payment-service] Stripe charge created: ch_5stu — status=succeeded
+2026-04-24T10:00:30Z INFO  [payment-service] Payment req_s1t2u3 completed successfully
+2026-04-24T10:01:00Z INFO  [payment-service] Processing payment req_v4w5x6 for user_NEW_TRIAL amount=$0.00
+2026-04-24T10:01:00Z WARN  [payment-service] User profile missing expected field 'billing_address' for user_NEW_TRIAL
+2026-04-24T10:01:01Z ERROR [payment-service] NullPointerException at PaymentService.java:84 — user_id is null
+2026-04-24T10:01:01Z ERROR [payment-service] java.lang.NullPointerException: Cannot invoke method on null reference
+	at com.acme.payment.PaymentService.processPayment(PaymentService.java:84)
+	at com.acme.payment.PaymentService.validateUser(PaymentService.java:67)
+	at com.acme.payment.PaymentController.handleRequest(PaymentController.java:42)
+	at com.acme.payment.middleware.AuthMiddleware.doFilter(AuthMiddleware.java:31)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)
+2026-04-24T10:01:01Z ERROR [payment-service] Payment failed for req_v4w5x6 — error=NullPointerException
+2026-04-24T10:01:30Z WARN  [payment-service] Error rate exceeded threshold: 15% (threshold=5%) in last 60s
+2026-04-24T10:01:45Z WARN  [payment-service] Circuit breaker OPEN for payment-processing — too many failures
+2026-04-24T10:02:00Z ERROR [payment-service] Circuit breaker rejected request req_y7z8a9 — service unavailable
+2026-04-24T10:02:15Z ERROR [payment-service] Circuit breaker rejected request req_b1c2d3 — service unavailable
+2026-04-24T10:02:30Z ERROR [payment-service] Circuit breaker rejected request req_e4f5g6 — service unavailable
+2026-04-24T10:02:45Z WARN  [monitoring-agent] ALERT: payment-service error rate at 40% — PagerDuty incident created INC-20260424-001
+2026-04-24T10:03:00Z INFO  [payment-service] Circuit breaker HALF-OPEN — testing recovery
+2026-04-24T10:03:01Z INFO  [payment-service] Processing payment req_h7i8j9 for user_501 amount=$12.00
+2026-04-24T10:03:01Z INFO  [payment-service] Stripe charge created: ch_6hij — status=succeeded
+2026-04-24T10:03:01Z INFO  [payment-service] Payment req_h7i8j9 completed — circuit breaker CLOSED

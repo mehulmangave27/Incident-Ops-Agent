@@ -1,0 +1,11 @@
+java.lang.NullPointerException: Cannot invoke method on null reference
+	at com.acme.payment.PaymentService.processPayment(PaymentService.java:84)
+	at com.acme.payment.PaymentService.validateUser(PaymentService.java:67)
+	at com.acme.payment.PaymentController.handleRequest(PaymentController.java:42)
+	at com.acme.payment.middleware.AuthMiddleware.doFilter(AuthMiddleware.java:31)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:750)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:227)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162)
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:53)
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:177)
