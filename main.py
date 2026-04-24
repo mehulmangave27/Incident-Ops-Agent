@@ -142,19 +142,32 @@ def get_git_diff_from_repo(repo_path: str, num_commits: int = 1) -> str:
     return _run_git(["log", f"-{num_commits}", "-p", "--no-color"], repo_path)
 
 def get_latest_commit_info(repo_path: str) -> dict:
-    """Get summary info about the latest commit."""
+    """Get summary info about the latest deploy/merge commit."""
     env = os.environ.copy()
     env["TZ"] = "UTC"
+    
+    # Try finding the latest merge commit first (assume merges = deploys)
     result = subprocess.run(
-        ["git", "log", "-1", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%H%n%an%n%cd%n%s"],
+        ["git", "log", "--merges", "-1", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%H%n%an%n%cd%n%s"],
         capture_output=True, text=True, cwd=repo_path, env=env
     )
+    
+    # Fallback to the absolute latest commit if no merge exists in the history
+    if result.returncode != 0 or not result.stdout.strip():
+        result = subprocess.run(
+            ["git", "log", "-1", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%H%n%an%n%cd%n%s"],
+            capture_output=True, text=True, cwd=repo_path, env=env
+        )
+        merge_label = ""
+    else:
+        merge_label = " (Merge)"
+        
     lines = result.stdout.strip().splitlines()
     return {
         "hash": lines[0] if len(lines) > 0 else "?",
         "author": lines[1] if len(lines) > 1 else "?",
         "time": lines[2] if len(lines) > 2 else "?",
-        "subject": lines[3] if len(lines) > 3 else "?",
+        "subject": (lines[3] if len(lines) > 3 else "?") + merge_label,
     }
 
 
